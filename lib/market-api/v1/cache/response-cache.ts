@@ -5,7 +5,7 @@ import { resolveSearchParams } from "../search/params";
 const CACHE_NAMESPACE = "market-api:v1:response-cache";
 const SEARCH_CACHE_KIND = "search";
 const GET_CACHE_KIND = "get";
-const DEFAULT_TTL_MS = 30_000;
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_BODY_BYTES = 512 * 1024;
 const CACHE_LOCK_TTL_MS = 10_000;
 const CACHE_WAIT_INTERVAL_MS = 50;
@@ -64,12 +64,8 @@ function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function buildResponseCacheKey(kind: CacheKind, version: string, cacheKey: string) {
-  return `${CACHE_NAMESPACE}:${kind}:response:${hash(`${version}:${cacheKey}`)}`;
-}
-
-function buildVersionCacheKey(kind: CacheKind) {
-  return `${CACHE_NAMESPACE}:${kind}:version`;
+function buildResponseCacheKey(kind: CacheKind, cacheKey: string) {
+  return `${CACHE_NAMESPACE}:${kind}:response:${hash(cacheKey)}`;
 }
 
 function serializeHeaders(headers: Headers) {
@@ -150,19 +146,6 @@ async function waitForCachedResponse(redis: RedisClient, cacheKey: string, lockK
   return null;
 }
 
-async function clearResponseCache(kind: CacheKind) {
-  const redis = getRedis();
-  await redis.set(buildVersionCacheKey(kind), randomUUID());
-}
-
-export async function clearSearchResponseCache() {
-  await clearResponseCache(SEARCH_CACHE_KIND);
-}
-
-export async function clearGetResponseCache() {
-  await clearResponseCache(GET_CACHE_KIND);
-}
-
 type ResponseCacheConfig = {
   scope: string;
   kind: CacheKind;
@@ -179,9 +162,8 @@ async function withResponseCache(
 
   const redis = getRedis();
   const params = await resolveSearchParams(request);
-  const version = await redis.get(buildVersionCacheKey(config.kind)) ?? "";
   const rawCacheKey = buildCacheKey(config.scope, params);
-  const cacheKey = buildResponseCacheKey(config.kind, version, rawCacheKey);
+  const cacheKey = buildResponseCacheKey(config.kind, rawCacheKey);
   const cached = await readCachedResponse(redis, cacheKey);
   if (cached) return toResponse(cached, "HIT");
 
