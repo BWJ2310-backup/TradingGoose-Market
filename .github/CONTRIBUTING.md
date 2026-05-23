@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to TradingGoose! Our goal is to provide developers with a powerful, user-friendly platform for building, testing, and optimizing agentic workflows. We welcome contributions in all forms—from bug fixes and design improvements to brand-new features.
 
-> **Project Overview:**  
+> **Project Overview:**
 > TradingGoose is a monorepo using Turborepo, containing the main application (`apps/tradinggoose/`), documentation (`apps/docs/`), and shared packages (`packages/`). The main application is built with Next.js (app router), ReactFlow, Zustand, Shadcn, and Tailwind CSS. Please ensure your contributions follow our best practices for clarity, maintainability, and consistency.
 
 ---
@@ -24,14 +24,14 @@ Thank you for your interest in contributing to TradingGoose! Our goal is to prov
 
 We strive to keep our workflow as simple as possible. To contribute:
 
-1. **Fork the Repository**  
+1. **Fork the Repository**
    Click the **Fork** button on GitHub to create your own copy of the project.
 
 2. **Clone Your Fork**
    ```bash
    git clone https://github.com/<your-username>/TradingGoose-Studio.git
    ```
-3. **Create a Feature Branch**  
+3. **Create a Feature Branch**
    Create a new branch with a descriptive name:
 
    ```bash
@@ -40,10 +40,10 @@ We strive to keep our workflow as simple as possible. To contribute:
 
    Use a clear naming convention to indicate the type of work (e.g., `feat/`, `fix/`, `docs/`).
 
-4. **Make Your Changes**  
+4. **Make Your Changes**
    Ensure your changes are small, focused, and adhere to our coding guidelines.
 
-5. **Commit Your Changes**  
+5. **Commit Your Changes**
    Write clear, descriptive commit messages that follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/#specification) specification. This allows us to maintain a coherent project history and generate changelogs automatically. For example:
    - `feat(api): add new endpoint for user authentication`
    - `fix(ui): resolve button alignment issue`
@@ -54,7 +54,7 @@ We strive to keep our workflow as simple as possible. To contribute:
    git push origin feat/your-feature-name
    ```
 
-7. **Create a Pull Request**  
+7. **Create a Pull Request**
    Open a pull request against the `staging` branch on GitHub. Please provide a clear description of the changes and reference any relevant issues (e.g., `fixes #123`).
 
 ---
@@ -65,7 +65,7 @@ If you discover a bug or have a feature request, please open an issue in our Git
 
 - Provide a clear, descriptive title.
 - Include as many details as possible (steps to reproduce, screenshots, etc.).
-- **Tag Your Issue Appropriately:**  
+- **Tag Your Issue Appropriately:**
   Use the following labels to help us categorize your issue:
   - **active:** Actively working on it right now.
   - **bug:** Something isn't working.
@@ -82,12 +82,12 @@ If you discover a bug or have a feature request, please open an issue in our Git
 
 Before creating a pull request:
 
-- **Ensure Your Branch Is Up-to-Date:**  
+- **Ensure Your Branch Is Up-to-Date:**
   Rebase your branch onto the latest `staging` branch to prevent merge conflicts.
-- **Follow the Guidelines:**  
+- **Follow the Guidelines:**
   Make sure your changes are well-tested, follow our coding standards, and include relevant documentation if necessary.
 
-- **Reference Issues:**  
+- **Reference Issues:**
   If your PR addresses an existing issue, include `refs #<issue-number>` or `fixes #<issue-number>` in your PR description.
 
 Our maintainers will review your pull request and provide feedback. We aim to make the review process as smooth and timely as possible.
@@ -305,13 +305,13 @@ In addition, you will need to update the registries:
 
 ### How to Create a New Block
 
-1. **Create a New File:**  
+1. **Create a New File:**
    Create a file for your block named after the provider (e.g., `pinecone.ts`) in the `/apps/tradinggoose/blocks/blocks` directory.
 
 2. **Create a New Icon:**
    Create a new icon for your block in the `/apps/tradinggoose/components/icons.tsx` file. The icon should follow the same naming convention as the block (e.g., `PineconeIcon`).
 
-3. **Define the Block Configuration:**  
+3. **Define the Block Configuration:**
    Your block should export a constant of type `BlockConfig`. For example:
 
    ```typescript:/apps/tradinggoose/blocks/blocks/pinecone.ts
@@ -383,7 +383,7 @@ In addition, you will need to update the registries:
    }
    ```
 
-4. **Register Your Block:**  
+4. **Register Your Block:**
    Add your block to the blocks registry (`/apps/tradinggoose/blocks/registry.ts`):
 
    ```typescript:/apps/tradinggoose/blocks/registry.ts
@@ -398,21 +398,21 @@ In addition, you will need to update the registries:
 
    The block will be automatically available to the application through the registry.
 
-5. **Test Your Block:**  
+5. **Test Your Block:**
    Ensure that the block displays correctly in the UI and that its functionality works as expected.
 
 ### How to Create a New Tool
 
-1. **Create a New Directory:**  
+1. **Create a New Directory:**
    Create a directory under `/apps/tradinggoose/tools` with the same name as the provider (e.g., `/apps/tradinggoose/tools/pinecone`).
 
-2. **Create Tool Files:**  
+2. **Create Tool Files:**
    Create separate files for each tool functionality with descriptive names (e.g., `fetch.ts`, `generate_embeddings.ts`, `search_text.ts`) in your tool directory.
 
-3. **Create a Types File:**  
+3. **Create a Types File:**
    Create a `types.ts` file in your tool directory to define and export all types related to your tools.
 
-4. **Create an Index File:**  
+4. **Create an Index File:**
    Create an `index.ts` file in your tool directory that imports and exports all tools:
 
    ```typescript:/apps/tradinggoose/tools/pinecone/index.ts
@@ -423,7 +423,7 @@ In addition, you will need to update the registries:
    export { fetchTool, generateEmbeddingsTool, searchTextTool }
    ```
 
-5. **Define the Tool Configuration:**  
+5. **Define the Tool Configuration:**
    Your tool should export a constant with a naming convention of `{toolName}Tool`. The tool ID should follow the format `{provider}_{tool_name}`. For example:
 
    ```typescript:/apps/tradinggoose/tools/pinecone/fetch.ts
@@ -462,7 +462,7 @@ In addition, you will need to update the registries:
    }
    ```
 
-6. **Register Your Tool:**  
+6. **Register Your Tool:**
    Update the tools registry in `/apps/tradinggoose/tools/index.ts` to include your new tool:
 
    ```typescript:/apps/tradinggoose/tools/index.ts
@@ -477,10 +477,10 @@ In addition, you will need to update the registries:
    }
    ```
 
-7. **Test Your Tool:**  
+7. **Test Your Tool:**
    Ensure that your tool functions correctly by making test requests and verifying the responses.
 
-8. **Generate Documentation:**  
+8. **Generate Documentation:**
    Run the documentation generator to create docs for your new tool:
    ```bash
    ./scripts/generate-docs.sh
