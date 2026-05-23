@@ -3,8 +3,10 @@ import type { RedisOptions } from "ioredis";
 
 let client: Redis | null = null;
 
-function getRedisUrl(): string | null {
-  return process.env.REDIS_URL ?? null;
+function getRedisUrl(): string {
+  const url = process.env.REDIS_URL;
+  if (!url) throw new Error("REDIS_URL is required.");
+  return url;
 }
 
 function parseRedisDb(pathname: string): number | undefined {
@@ -22,13 +24,12 @@ function buildRedisOptions(url: string) {
     username: parsed.username || undefined,
     password: parsed.password || undefined,
     db: parseRedisDb(parsed.pathname),
-    maxRetriesPerRequest: 1,
-    connectTimeout: 1000,
-    commandTimeout: 1000,
-    lazyConnect: true,
-    enableReadyCheck: false,
-    enableOfflineQueue: false,
-    retryStrategy: () => null,
+    maxRetriesPerRequest: 2,
+    connectTimeout: 5_000,
+    commandTimeout: 5_000,
+    enableReadyCheck: true,
+    enableOfflineQueue: true,
+    retryStrategy: (times) => Math.min(times * 100, 2_000),
   };
 
   if (parsed.protocol === "rediss:") {
@@ -45,32 +46,22 @@ function unrefRedisStream(redis: Redis) {
   redis.stream?.unref?.();
 }
 
-export function getRedis(): Redis | null {
+export function getRedis(): Redis {
   if (client?.status && client.status !== "end") return client;
-  const url = getRedisUrl();
-  if (!url) return null;
 
-  try {
-    client = new Redis(buildRedisOptions(url));
+  client = new Redis(buildRedisOptions(getRedisUrl()));
 
-    client.on("connect", () => {
-      if (client) {
-        unrefRedisStream(client);
-      }
-    });
-    client.on("error", (err) => {
-      console.error("[redis] connection error:", err.message);
-    });
-    client.on("end", () => {
-      client = null;
-    });
-
-    void client.connect().catch(() => {
-      // Handled by the error listener above
-    });
-  } catch {
+  client.on("connect", () => {
+    if (client) {
+      unrefRedisStream(client);
+    }
+  });
+  client.on("error", (err) => {
+    console.error("[redis] connection error:", err.message);
+  });
+  client.on("end", () => {
     client = null;
-  }
+  });
 
   return client;
 }

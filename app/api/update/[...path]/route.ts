@@ -8,6 +8,10 @@ import { postUpdateCurrencyRank } from "@/lib/market-api/v1/update/currency-rank
 import { postDecayCurrencyRank } from "@/lib/market-api/v1/update/currency-rank/decay/route";
 import { postUpdateListingRank } from "@/lib/market-api/v1/update/listing-rank/route";
 import { postDecayListingRank } from "@/lib/market-api/v1/update/listing-rank/decay/route";
+import {
+  clearGetResponseCache,
+  clearSearchResponseCache
+} from "@/lib/market-api/v1/cache/response-cache";
 
 export const runtime = "nodejs";
 
@@ -30,7 +34,14 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ path?: string[] }> }
 ) {
-  return handleUpdateRequest(request, context);
+  const response = await handleUpdateRequest(request, context);
+  if (response.ok) {
+    await Promise.all([
+      clearSearchResponseCache(),
+      clearGetResponseCache()
+    ]);
+  }
+  return response;
 }
 
 export async function GET(request: Request) {
