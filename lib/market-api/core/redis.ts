@@ -42,26 +42,21 @@ function buildRedisOptions(url: string) {
   return options;
 }
 
-function unrefRedisStream(redis: Redis) {
-  redis.stream?.unref?.();
-}
-
 export function getRedis(): Redis {
   if (client?.status && client.status !== "end") return client;
 
-  client = new Redis(buildRedisOptions(getRedisUrl()));
+  const redis = new Redis(buildRedisOptions(getRedisUrl()));
+  client = redis;
 
-  client.on("connect", () => {
-    if (client) {
-      unrefRedisStream(client);
-    }
+  redis.on("connect", () => {
+    redis.stream?.unref?.();
   });
-  client.on("error", (err) => {
+  redis.on("error", (err) => {
     console.error("[redis] connection error:", err.message);
   });
-  client.on("end", () => {
-    client = null;
+  redis.on("end", () => {
+    if (client === redis) client = null;
   });
 
-  return client;
+  return redis;
 }

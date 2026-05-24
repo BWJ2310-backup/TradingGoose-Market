@@ -125,8 +125,7 @@ async function readCachedResponse(redis: RedisClient, cacheKey: string) {
   return cached ? (JSON.parse(cached) as SerializedResponse) : null;
 }
 
-async function acquireCacheLock(redis: RedisClient, cacheKey: string) {
-  const lockKey = `${cacheKey}:lock`;
+async function acquireCacheLock(redis: RedisClient, lockKey: string) {
   const token = randomUUID();
   const locked = await redis.set(lockKey, token, "PX", CACHE_LOCK_TTL_MS, "NX");
   return locked === "OK" ? { lockKey, token } : null;
@@ -164,27 +163,30 @@ async function withResponseCache(
   const params = await resolveSearchParams(request);
   const rawCacheKey = buildCacheKey(config.scope, params);
   const cacheKey = buildResponseCacheKey(config.kind, rawCacheKey);
-  const cached = await readCachedResponse(redis, cacheKey);
-  if (cached) return toResponse(cached, "HIT");
+  const lockKey = `${cacheKey}:lock`;
+  let cached = await readCachedResponse(redis, cacheKey);
 
-  const lock = await acquireCacheLock(redis, cacheKey);
-  if (!lock) {
-    const waitedPayload = await waitForCachedResponse(redis, cacheKey, `${cacheKey}:lock`);
-    if (waitedPayload) return toResponse(waitedPayload, "HIT");
-  }
+  while (!cached) {
+    const lock = await acquireCacheLock(redis, lockKey);
+    if (lock) {
+      try {
+        const cacheSafeRequest = buildCacheSafeRequest(request, params);
+        const serialized = await toSerializedResponse(await resolver(cacheSafeRequest));
+        if (!shouldCacheSerializedResponse(serialized, getMaxBodyBytes(config.maxBodyBytesEnvKey))) {
+          return toResponse(serialized, "BYPASS");
+        }
 
-  try {
-    const cacheSafeRequest = buildCacheSafeRequest(request, params);
-    const serialized = await toSerializedResponse(await resolver(cacheSafeRequest));
-    if (!shouldCacheSerializedResponse(serialized, getMaxBodyBytes(config.maxBodyBytesEnvKey))) {
-      return toResponse(serialized, "BYPASS");
+        await redis.set(cacheKey, JSON.stringify(serialized), "EX", getCacheTtlSeconds(config.ttlEnvKey));
+        return toResponse(serialized, "MISS");
+      } finally {
+        await releaseCacheLock(redis, lock.lockKey, lock.token);
+      }
     }
 
-    await redis.set(cacheKey, JSON.stringify(serialized), "EX", getCacheTtlSeconds(config.ttlEnvKey));
-    return toResponse(serialized, "MISS");
-  } finally {
-    if (lock) await releaseCacheLock(redis, lock.lockKey, lock.token);
+    cached = await waitForCachedResponse(redis, cacheKey, lockKey);
   }
+
+  return toResponse(cached, "HIT");
 }
 
 export async function withSearchResponseCache(
