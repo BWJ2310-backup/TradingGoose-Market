@@ -124,11 +124,12 @@ Required for a normal local setup:
 - `BETTER_AUTH_URL` - auth base URL.
 - `NEXT_PUBLIC_APP_URL` - public app URL used for auth redirects and generated links.
 - `INTERNAL_API_SECRET` - HMAC pepper and internal API secret.
+- `REDIS_URL` - Redis connection string for response cache and free-tier rate limiting.
 
 Optional or integration-specific:
 
 - Runtime DB tuning: `DATABASE_POOL_URL`, `DATABASE_POOL_MAX`.
-- Free-tier and rate limiting: `REDIS_URL`, `MARKET_FREE_TIER_*`.
+- Free-tier tuning: `MARKET_FREE_TIER_*`.
 - Rank update access: `MARKET_RANK_UPDATE_ACCESS_MODE` (`authenticated` or `service`).
 - Email delivery: `RESEND_API_KEY`, optional `FROM_EMAIL_ADDRESS`.
 - TradingGoose Studio billing integration: `OFFICIAL_TG_URL`.

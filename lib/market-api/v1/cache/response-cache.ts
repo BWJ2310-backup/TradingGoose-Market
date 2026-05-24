@@ -1,26 +1,31 @@
-import { revalidateTag, unstable_cache } from "next/cache";
+import { createHash, randomUUID } from "crypto";
+import { getRedis } from "@/lib/market-api/core/redis";
 import { resolveSearchParams } from "../search/params";
 
-const SEARCH_CACHE_TAG = "market-api:search";
-const GET_CACHE_TAG = "market-api:get";
-const DEFAULT_TTL_MS = 30_000;
+const CACHE_NAMESPACE = "market-api:v1:response-cache";
+const SEARCH_CACHE_KIND = "search";
+const GET_CACHE_KIND = "get";
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_BODY_BYTES = 512 * 1024;
+const CACHE_LOCK_TTL_MS = 10_000;
+const CACHE_WAIT_INTERVAL_MS = 50;
+const RELEASE_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
 
-type SerializedSearchResponse = {
+type RedisClient = ReturnType<typeof getRedis>;
+type CacheKind = typeof SEARCH_CACHE_KIND | typeof GET_CACHE_KIND;
+type CacheStatus = "HIT" | "MISS" | "BYPASS";
+
+type SerializedResponse = {
   body: string;
   status: number;
   statusText: string;
   headers: Array<[string, string]>;
 };
-
-class UncacheableResponseError extends Error {
-  response: SerializedSearchResponse;
-
-  constructor(response: SerializedSearchResponse) {
-    super("Search response should bypass cache.");
-    this.response = response;
-  }
-}
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
   if (!value) return fallback;
@@ -55,8 +60,12 @@ function buildCacheKey(scope: string, params: URLSearchParams) {
   return `${scope}?${query}`;
 }
 
-function sanitizeScope(scope: string) {
-  return scope.replace(/[^a-zA-Z0-9:_-]/g, ":");
+function hash(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function buildResponseCacheKey(kind: CacheKind, cacheKey: string) {
+  return `${CACHE_NAMESPACE}:${kind}:response:${hash(cacheKey)}`;
 }
 
 function serializeHeaders(headers: Headers) {
@@ -67,7 +76,7 @@ function serializeHeaders(headers: Headers) {
   return serialized;
 }
 
-async function toSerializedResponse(response: Response): Promise<SerializedSearchResponse> {
+async function toSerializedResponse(response: Response): Promise<SerializedResponse> {
   return {
     body: await response.clone().text(),
     status: response.status,
@@ -76,10 +85,7 @@ async function toSerializedResponse(response: Response): Promise<SerializedSearc
   };
 }
 
-function toResponse(
-  payload: SerializedSearchResponse,
-  cacheStatus: "HIT" | "MISS" | "BYPASS"
-) {
+function toResponse(payload: SerializedResponse, cacheStatus: CacheStatus) {
   const headers = new Headers(payload.headers);
   headers.set("x-market-cache", cacheStatus);
   return new Response(payload.body, {
@@ -89,28 +95,13 @@ function toResponse(
   });
 }
 
-function shouldCacheSerializedResponse(payload: SerializedSearchResponse, maxBodyBytes: number) {
+function shouldCacheSerializedResponse(payload: SerializedResponse, maxBodyBytes: number) {
   if (payload.status !== 200) return false;
   const contentTypeHeader = payload.headers.find(([key]) => key.toLowerCase() === "content-type")?.[1] ?? "";
   if (!contentTypeHeader.toLowerCase().includes("application/json")) return false;
   if (Buffer.byteLength(payload.body, "utf8") > maxBodyBytes) return false;
   return true;
 }
-
-export function clearSearchResponseCache() {
-  revalidateTag(SEARCH_CACHE_TAG, "max");
-}
-
-export function clearGetResponseCache() {
-  revalidateTag(GET_CACHE_TAG, "max");
-}
-
-type ResponseCacheConfig = {
-  scope: string;
-  cacheTag: string;
-  ttlEnvKey: string;
-  maxBodyBytesEnvKey: string;
-};
 
 function buildCacheSafeRequest(request: Request, params: URLSearchParams) {
   const originalUrl = new URL(request.url);
@@ -125,43 +116,77 @@ function buildCacheSafeRequest(request: Request, params: URLSearchParams) {
   });
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readCachedResponse(redis: RedisClient, cacheKey: string) {
+  const cached = await redis.get(cacheKey);
+  return cached ? (JSON.parse(cached) as SerializedResponse) : null;
+}
+
+async function acquireCacheLock(redis: RedisClient, lockKey: string) {
+  const token = randomUUID();
+  const locked = await redis.set(lockKey, token, "PX", CACHE_LOCK_TTL_MS, "NX");
+  return locked === "OK" ? { lockKey, token } : null;
+}
+
+async function releaseCacheLock(redis: RedisClient, lockKey: string, token: string) {
+  await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, token).catch(() => undefined);
+}
+
+async function waitForCachedResponse(redis: RedisClient, cacheKey: string, lockKey: string) {
+  for (let waited = 0; waited < CACHE_LOCK_TTL_MS; waited += CACHE_WAIT_INTERVAL_MS) {
+    await sleep(CACHE_WAIT_INTERVAL_MS);
+    const cached = await readCachedResponse(redis, cacheKey);
+    if (cached) return cached;
+    if (!(await redis.exists(lockKey))) return null;
+  }
+  return null;
+}
+
+type ResponseCacheConfig = {
+  scope: string;
+  kind: CacheKind;
+  ttlEnvKey: string;
+  maxBodyBytesEnvKey: string;
+};
+
 async function withResponseCache(
   request: Request,
   config: ResponseCacheConfig,
   resolver: (cacheRequest: Request) => Promise<Response>
 ) {
+  if (request.method.toUpperCase() !== "GET") return resolver(request);
+
+  const redis = getRedis();
   const params = await resolveSearchParams(request);
-  const cacheKey = buildCacheKey(config.scope, params);
-  const ttlSeconds = getCacheTtlSeconds(config.ttlEnvKey);
-  const maxBodyBytes = getMaxBodyBytes(config.maxBodyBytesEnvKey);
-  const cacheSafeRequest = buildCacheSafeRequest(request, params);
-  let didCompute = false;
+  const rawCacheKey = buildCacheKey(config.scope, params);
+  const cacheKey = buildResponseCacheKey(config.kind, rawCacheKey);
+  const lockKey = `${cacheKey}:lock`;
+  let cached = await readCachedResponse(redis, cacheKey);
 
-  const resolveCached = unstable_cache(
-    async (): Promise<SerializedSearchResponse> => {
-      didCompute = true;
-      const serialized = await toSerializedResponse(await resolver(cacheSafeRequest));
-      if (!shouldCacheSerializedResponse(serialized, maxBodyBytes)) {
-        throw new UncacheableResponseError(serialized);
+  while (!cached) {
+    const lock = await acquireCacheLock(redis, lockKey);
+    if (lock) {
+      try {
+        const cacheSafeRequest = buildCacheSafeRequest(request, params);
+        const serialized = await toSerializedResponse(await resolver(cacheSafeRequest));
+        if (!shouldCacheSerializedResponse(serialized, getMaxBodyBytes(config.maxBodyBytesEnvKey))) {
+          return toResponse(serialized, "BYPASS");
+        }
+
+        await redis.set(cacheKey, JSON.stringify(serialized), "EX", getCacheTtlSeconds(config.ttlEnvKey));
+        return toResponse(serialized, "MISS");
+      } finally {
+        await releaseCacheLock(redis, lock.lockKey, lock.token);
       }
-      return serialized;
-    },
-    [cacheKey],
-    {
-      revalidate: ttlSeconds,
-      tags: [config.cacheTag, `${config.cacheTag}:${sanitizeScope(config.scope)}`]
     }
-  );
 
-  try {
-    const payload = await resolveCached();
-    return toResponse(payload, didCompute ? "MISS" : "HIT");
-  } catch (error) {
-    if (error instanceof UncacheableResponseError) {
-      return toResponse(error.response, "BYPASS");
-    }
-    throw error;
+    cached = await waitForCachedResponse(redis, cacheKey, lockKey);
   }
+
+  return toResponse(cached, "HIT");
 }
 
 export async function withSearchResponseCache(
@@ -173,7 +198,7 @@ export async function withSearchResponseCache(
     request,
     {
       scope,
-      cacheTag: SEARCH_CACHE_TAG,
+      kind: SEARCH_CACHE_KIND,
       ttlEnvKey: "MARKET_SEARCH_CACHE_TTL_MS",
       maxBodyBytesEnvKey: "MARKET_SEARCH_CACHE_MAX_BODY_BYTES"
     },
@@ -190,7 +215,7 @@ export async function withGetResponseCache(
     request,
     {
       scope,
-      cacheTag: GET_CACHE_TAG,
+      kind: GET_CACHE_KIND,
       ttlEnvKey: "MARKET_GET_CACHE_TTL_MS",
       maxBodyBytesEnvKey: "MARKET_GET_CACHE_MAX_BODY_BYTES"
     },
