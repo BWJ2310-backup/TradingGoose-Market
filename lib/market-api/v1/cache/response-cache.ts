@@ -132,7 +132,7 @@ async function acquireCacheLock(redis: RedisClient, lockKey: string) {
 }
 
 async function releaseCacheLock(redis: RedisClient, lockKey: string, token: string) {
-  await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, token);
+  await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, token).catch(() => undefined);
 }
 
 async function waitForCachedResponse(redis: RedisClient, cacheKey: string, lockKey: string) {
