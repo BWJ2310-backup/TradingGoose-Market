@@ -209,15 +209,19 @@ export async function getSearch(c: ApiContext, plugin?: PluginContext) {
       }
     }
     if (results.cryptos?.length) {
-      const seenBaseIds = new Set<string>();
-      for (const pair of results.cryptos) {
-        const listing = toCryptoListing(pair);
-        const baseKey = listing.base_id ?? listing.base;
-        if (isDefaultQuery) {
+      if (isDefaultQuery) {
+        const seenBaseIds = new Set<string>();
+        for (const pair of results.cryptos) {
+          const listing = toCryptoListing(pair);
+          const baseKey = listing.base_id ?? listing.base;
           if (seenBaseIds.has(baseKey)) continue;
           seenBaseIds.add(baseKey);
+          merged.push(listing);
         }
-        merged.push(listing);
+      } else {
+        for (const pair of results.cryptos) {
+          merged.push(toCryptoListing(pair));
+        }
       }
     }
     if (results.currencies?.length) {
