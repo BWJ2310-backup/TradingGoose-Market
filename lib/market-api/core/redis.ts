@@ -28,7 +28,7 @@ function buildRedisOptions(url: string) {
     connectTimeout: 5_000,
     commandTimeout: 5_000,
     enableReadyCheck: true,
-    enableOfflineQueue: false,
+    enableOfflineQueue: true,
     retryStrategy: (times) => Math.min(times * 100, 2_000),
   };
 
